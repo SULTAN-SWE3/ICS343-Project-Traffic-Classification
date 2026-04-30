@@ -1,5 +1,4 @@
-from operator import attrgetter
-from datetime import datetime
+import time
 from ryu.app import simple_switch_13
 from ryu.controller import ofp_event
 from ryu.controller.handler import MAIN_DISPATCHER, DEAD_DISPATCHER
@@ -29,7 +28,7 @@ class SimpleMonitor13(simple_switch_13.SimpleSwitch13):
                 del self.datapaths[datapath.id]
 
     def _monitor(self):
-        self.logger.info('time\tdatapath\tin-port\teth-src\teth-dst\tout-port\ttotal_packets\ttotal_bytes')
+        print('time\tdatapath\tin-port\teth-src\teth-dst\tout-port\ttotal_packets\ttotal_bytes', flush=True)
         while True:
             for dp in self.datapaths.values():
                 self._request_stats(dp)
@@ -54,7 +53,7 @@ class SimpleMonitor13(simple_switch_13.SimpleSwitch13):
                            key=lambda flow: (flow.match['in_port'],
                                              flow.match['eth_dst'])):
             #print details of flows
-            self.fields['time'] = datetime.utcnow().strftime('%s')
+            self.fields['time'] = int(time.time())
             self.fields['datapath'] = ev.msg.datapath.id
             self.fields['in-port'] = stat.match['in_port']
             self.fields['eth_src'] = stat.match['eth_src']
@@ -63,4 +62,4 @@ class SimpleMonitor13(simple_switch_13.SimpleSwitch13):
             self.fields['total_packets'] = stat.packet_count
             self.fields['total_bytes'] = stat.byte_count
 
-            self.logger.info('data\t%s\t%x\t%x\t%s\t%s\t%x\t%d\t%d',self.fields['time'],self.fields['datapath'],self.fields['in-port'],self.fields['eth_src'],self.fields['eth_dst'],self.fields['out-port'],self.fields['total_packets'],self.fields['total_bytes'])
+            print('data\t%s\t%x\t%x\t%s\t%s\t%x\t%d\t%d' % (self.fields['time'],self.fields['datapath'],self.fields['in-port'],self.fields['eth_src'],self.fields['eth_dst'],self.fields['out-port'],self.fields['total_packets'],self.fields['total_bytes']), flush=True)

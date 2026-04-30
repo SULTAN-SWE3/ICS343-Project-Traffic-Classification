@@ -3,6 +3,9 @@ __pycache__/
 *.pyo
 .DS_Store
 .venv/
+.venv39/
+npcap/
+ditg/
 venv/
 env/
 .ipynb_checkpoints/
