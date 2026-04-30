@@ -1,0 +1,3 @@
+# Ryu controller dependency.
+# Mininet and Open vSwitch are installed at the OS level in Linux.
+ryu>=4.34

@@ -26,6 +26,17 @@ flows = {} #empty flow dictionary
 #how long to collect training data
 TIMEOUT = 15*60 #15 min 
 
+MODEL_FILES = {
+    'logistic': 'models/LogisticRegression',
+    'kmeans': 'models/KMeans_Clustering',
+    'svm': 'models/SVC',
+    'knearest': 'models/KNeighbors',
+    'kneighbors': 'models/KNeighbors',
+    'Randomforest': 'models/RandomForestClassifier',
+    'randomforest': 'models/RandomForestClassifier',
+    'gaussiannb': 'models/GaussianNB',
+}
+
 class Flow:
     def __init__(self, time_start, datapath, inport, ethsrc, ethdst, outport, packets, bytes):
         self.time_start = time_start
@@ -106,12 +117,13 @@ def printclassifier(model):
         label = model.predict(features.tolist()) # If model is supervised (logistic regression) then the label is the type of traffic
         
         # If the model is unsupervised, the label is a cluster number. Refer to Jupyter notebook to see how cluster numbers map to labels
-        if label == 0: label = ['dns']
-        elif label == 1: label = ['game']
-        elif label == 2: label = ['ping']
-        elif label == 3: label = ['quake']  
-        elif label == 4: label = ['telnet']
-        elif label == 5: label = ['voice']
+        if not isinstance(label[0], str):
+            if label[0] == 0: label = ['dns']
+            elif label[0] == 1: label = ['game']
+            elif label[0] == 2: label = ['ping']
+            elif label[0] == 3: label = ['quake']
+            elif label[0] == 4: label = ['telnet']
+            elif label[0] == 5: label = ['voice']
 	
         
         x.add_row([key, flow.ethsrc, flow.ethdst, label[0],flow.forward_status,flow.reverse_status]) 
@@ -147,18 +159,18 @@ def run_ryu(p,traffic_type=None,f=None,model=None):
     while True:
         #print 'going through loop'
         out = p.stdout.readline()
-        if out == '' and p.poll() != None:
+        if out == b'' and p.poll() != None:
             break
-        if out != '' and out.startswith(b'data'): #when Ryu 'simple_monitor_AK.py' script returns output
+        if out != b'' and out.startswith(b'data'): #when Ryu 'simple_monitor_AK.py' script returns output
             fields = out.split(b'\t')[1:] #split the flow details
             
             fields = [f.decode(encoding='utf-8', errors='strict') for f in fields] #decode flow details 
             
-            unique_id = hash(''.join([fields[1],fields[3],fields[4]])) #create unique ID for flow based on switch ID, source host,and destination host
+            unique_id = (fields[1], fields[3], fields[4]) #create unique ID for flow based on switch ID, source host,and destination host
             if unique_id in flows.keys():
                 flows[unique_id].updateforward(int(fields[6]),int(fields[7]),int(fields[0])) #update forward attributes with time, packet, and byte count
             else:
-                rev_unique_id = hash(''.join([fields[1],fields[4],fields[3]])) #switch source and destination to generate same hash for src/dst and dst/src
+                rev_unique_id = (fields[1], fields[4], fields[3]) #switch source and destination to generate same key for src/dst and dst/src
                 if rev_unique_id in flows.keys():
                     flows[rev_unique_id].updatereverse(int(fields[6]),int(fields[7]),int(fields[0])) #update reverse attributes with time, packet, and byte count
                 else:
@@ -177,7 +189,7 @@ def printHelp():
     print("\n\tTo start a near real time traffic classification application using unsupervised ML, run: sudo python traffic_classifier.py <NameOfAlgo>")
     print("\n\tTo start a near real time traffic classification application using supervised ML, run: sudo python traffic_classifier.py <NameOfAlgo>")
     print("\n\t Available algorithms Logistic Regression, K Means clustering, K nearest neighbors, Random Forest Classifier, SVM, Gaussian Naive Bayes")
-    print("\n\t SUBCOMMANDS = ('train', 'logistic', 'kmeans', 'knearest', 'svm', 'Randomforest', 'gaussiannb')")
+    print("\n\t SUBCOMMANDS = ('train', 'logistic', 'kmeans', 'knearest', 'kneighbors', 'svm', 'Randomforest', 'randomforest', 'gaussiannb')")
     return
 
 #for timer to collect flow training data
@@ -186,7 +198,7 @@ def alarm_handler(signum, frame):
     raise Exception()
     
 if __name__ == '__main__':
-    SUBCOMMANDS = ('train', 'logistic', 'kmeans', 'knearest', 'svm', 'Randomforest', 'gaussiannb')
+    SUBCOMMANDS = ('train', 'logistic', 'kmeans', 'knearest', 'kneighbors', 'svm', 'Randomforest', 'randomforest', 'gaussiannb')
 
     if len(sys.argv) < 2:
         print("ERROR: Incorrect # of args")
@@ -226,18 +238,7 @@ if __name__ == '__main__':
 
         else:
             p = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT) #start ryu process
-            if sys.argv[1] == 'logistic':
-                infile = open('models/LogisticRegression','rb') 
-            elif sys.argv[1] == 'kmeans':
-                infile = open('models/KMeans_Clustering','rb')
-            elif sys.argv[1] == 'svm':
-                infile = open('models/SVC','rb')
-            elif sys.argv[1] == 'kneighbors':
-                infile = open('models/KNeighbors','rb')
-            elif sys.argv[1] == 'Randomforest':
-                infile = open('models/RandomForestClassifier','rb')
-            elif sys.argv[1] == 'gaussiannb':
-                infile = open('models/GaussianNB','rb')
+            infile = open(MODEL_FILES[sys.argv[1]],'rb')
 	    
 
             model = pickle.load(infile) #unload previously trained ML model (refer to Jupyter notebook for details)
