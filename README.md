@@ -249,7 +249,9 @@ Ethernet
 Loopback Adapter
 ```
 
-Use the active interface. If you are connected through Wi-Fi, use `"Wi-Fi"`. If you are connected by cable, use `"Ethernet"`.
+Use the active internet interface. On this project setup, use `"Wi-Fi"` when the computer is connected to the internet through Wi-Fi.
+
+Only use `"Ethernet"` if the computer is actually connected to the internet through a cable.
 
 You can also check Windows adapters:
 
@@ -283,6 +285,64 @@ The output shows:
 - Predicted class
 - Demo accuracy
 
+## Validate The Dataset
+
+Before reporting results, check that the datasets and saved models match:
+
+```powershell
+python traffic_classifier.py validate-data
+```
+
+This shows:
+
+- row counts for each CSV file
+- class balance
+- missing or invalid rows
+- duplicate feature rows
+- saved model classes compared with dataset classes
+
+Current expected notes:
+
+- `ping_training_data.csv` has one invalid row at the end.
+- The datasets currently contain `dns`, `game`, `ping`, `telnet`, and `voice`.
+- Some saved models also know `quake`, but there is no `quake_training_data.csv` in the current `datasets/` folder.
+- The saved `logistic` model does not know the `game` class, so it should not be the main recommended saved model.
+
+## Run A Correct Train/Test Evaluation
+
+Use `evaluate` when you want a better test than the dataset demo.
+
+```powershell
+python traffic_classifier.py evaluate randomforest --test-size 0.3
+```
+
+This trains a fresh model on 70% of the valid dataset rows and tests on the remaining 30%.
+
+It shows:
+
+- train row count
+- test row count
+- accuracy
+- confusion matrix
+- precision / recall / F1-score
+
+Recommended evaluation:
+
+```powershell
+python traffic_classifier.py evaluate randomforest --test-size 0.3 --drop-zero-rows
+```
+
+`--drop-zero-rows` ignores rows where all model features are zero. This is useful because those startup rows can appear in multiple classes and confuse the model.
+
+Other supervised models:
+
+```powershell
+python traffic_classifier.py evaluate knearest --test-size 0.3
+python traffic_classifier.py evaluate gaussiannb --test-size 0.3
+python traffic_classifier.py evaluate svm --test-size 0.3
+python traffic_classifier.py evaluate logistic --test-size 0.3
+```
+
 ## Run Live Windows Capture
 
 First, open PowerShell. Administrator mode is recommended for packet capture.
@@ -305,22 +365,40 @@ List interfaces:
 python traffic_classifier.py interfaces
 ```
 
-Run capture on Wi-Fi:
+Run capture on the internet interface, usually Wi-Fi:
 
 ```powershell
 python traffic_classifier.py capture randomforest --iface "Wi-Fi"
-```
-
-Run capture on Ethernet:
-
-```powershell
-python traffic_classifier.py capture randomforest --iface "Ethernet"
 ```
 
 You can also run the model name directly:
 
 ```powershell
 python traffic_classifier.py randomforest --iface "Wi-Fi"
+```
+
+For safer output when sharing screenshots, anonymize IP addresses:
+
+```powershell
+python traffic_classifier.py capture randomforest --iface "Wi-Fi" --anonymize
+```
+
+For a clearer live demo, also show a prediction summary:
+
+```powershell
+python traffic_classifier.py capture randomforest --iface "Wi-Fi" --anonymize --summary
+```
+
+To show how packets are tracked into flows, print recent packet events too:
+
+```powershell
+python traffic_classifier.py capture randomforest --iface "Wi-Fi" --anonymize --summary --show-packets 10
+```
+
+To save flow snapshots for your report:
+
+```powershell
+python traffic_classifier.py capture randomforest --iface "Wi-Fi" --anonymize --summary --output reports\live_capture.csv
 ```
 
 Stop live capture with:
@@ -352,7 +430,7 @@ python traffic_classifier.py capture randomforest --iface "Wi-Fi" --max-flows 10
 Use all options together:
 
 ```powershell
-python traffic_classifier.py capture randomforest --iface "Wi-Fi" --interval 3 --timeout 30 --max-flows 10
+python traffic_classifier.py capture randomforest --iface "Wi-Fi" --interval 3 --timeout 30 --max-flows 10 --anonymize --summary --show-packets 10 --output reports\live_capture.csv
 ```
 
 ## Generate Traffic For Testing
@@ -384,23 +462,42 @@ The capture table should update when packets are seen.
 Example output:
 
 ```text
-+----+------+----------+-------------+-----------+-------------+-------------+
-| #  | Flow |  Source  | Destination | Predicted | Fwd Packets | Rev Packets |
-+----+------+----------+-------------+-----------+-------------+-------------+
-| 1  | tcp  | x.x.x.x  |   y.y.y.y   |   quake   |      6      |      7      |
-+----+------+----------+-------------+-----------+-------------+-------------+
++----+---------+------+--------------+-------------+-----------+--------+-----------+-----------+----------+----------+-----------+-----------+--------+
+| #  | Flow ID | Flow |    Source    | Destination | Predicted | Status | Fwd Delta | Rev Delta | Fwd Pkts | Rev Pkts | Fwd Bytes | Rev Bytes | Age(s) |
++----+---------+------+--------------+-------------+-----------+--------+-----------+-----------+----------+----------+-----------+-----------+--------+
+| 1  |    7    | tcp  | host-1:51544 |  host-2:443 |   quake   | active |     6     |     7     |    10    |    12    |    1200   |    1350   |  4.21  |
++----+---------+------+--------------+-------------+-----------+--------+-----------+-----------+----------+----------+-----------+-----------+--------+
 ```
 
-The `x.x.x.x` and `y.y.y.y` values are placeholders, not real captured IP addresses.
+The `host-1` and `host-2` values appear when `--anonymize` is used. They are placeholders, not real captured IP addresses.
 
 Meaning:
 
 - `Flow`: packet protocol, such as `tcp`, `udp`, or `icmp`.
-- `Source`: IP address that sent the flow.
-- `Destination`: IP address that received the flow.
+- `Flow ID`: stable number assigned when the flow is first seen.
+- `Source`: source host and port when a port exists.
+- `Destination`: destination host and port when a port exists.
 - `Predicted`: the class predicted by the ML model.
-- `Fwd Packets`: packets seen in the forward direction.
-- `Rev Packets`: packets seen in the reverse direction.
+- `Status`: `active` means the flow had new packets in this print interval; `idle` means no new packets were seen.
+- `Fwd Delta`: new forward packets seen during the latest print interval.
+- `Rev Delta`: new reverse packets seen during the latest print interval.
+- `Fwd Pkts`: total forward packets seen since this flow started.
+- `Rev Pkts`: total reverse packets seen since this flow started.
+- `Fwd Bytes`: total forward bytes seen since this flow started.
+- `Rev Bytes`: total reverse bytes seen since this flow started.
+- `Age(s)`: how long the flow has been tracked.
+
+When `--show-packets 10` is used, the program also prints recent packet events:
+
+```text
++--------+---------+-----------+-------+--------------+-------------+-------+
+| Packet | Flow ID | Direction | Proto |    Source    | Destination | Bytes |
++--------+---------+-----------+-------+--------------+-------------+-------+
+|   31   |    7    |  forward  |  tcp  | host-1:51544 |  host-2:443 |  128  |
++--------+---------+-----------+-------+--------------+-------------+-------+
+```
+
+This shows the path from individual packets to a tracked flow.
 
 If you see your local IP, such as `10.x.x.x` or `192.168.x.x`, that is usually your computer or another device on the same network.
 
@@ -505,13 +602,13 @@ List interfaces:
 python traffic_classifier.py interfaces
 ```
 
-Then use the correct one:
+Then use the active internet interface. For this setup, use Wi-Fi:
 
 ```powershell
 python traffic_classifier.py capture randomforest --iface "Wi-Fi"
 ```
 
-or:
+Only use Ethernet if the internet connection is actually wired:
 
 ```powershell
 python traffic_classifier.py capture randomforest --iface "Ethernet"
@@ -584,8 +681,10 @@ python -m pip install --upgrade pip setuptools wheel
 pip install -r requirements.txt
 pip check
 python traffic_classifier.py demo randomforest --limit 10
+python traffic_classifier.py validate-data
+python traffic_classifier.py evaluate randomforest --test-size 0.3 --drop-zero-rows
 python traffic_classifier.py interfaces
-python traffic_classifier.py capture randomforest --iface "Wi-Fi" --timeout 30
+python traffic_classifier.py capture randomforest --iface "Wi-Fi" --timeout 30 --anonymize --summary --show-packets 10 --output reports\live_capture.csv
 ```
 
 For another computer, do the same setup again. Do not copy `.venv39` from one machine to another.

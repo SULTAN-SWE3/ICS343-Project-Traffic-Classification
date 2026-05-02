@@ -11,3 +11,4 @@ env/
 .ipynb_checkpoints/
 *_training_data_new.csv
 setup_report.txt
+reports/*.csv
