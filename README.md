@@ -9,6 +9,23 @@ It can run in two modes:
 
 This Windows setup does **not** require Mininet, Open vSwitch, Ubuntu, or Ryu.
 
+## Project Objective
+
+The objective is to build a Windows-based network traffic classifier that can:
+
+- capture live internet packets from the active network interface
+- group packets into bidirectional flows
+- extract packet, byte, rate, and timing features
+- classify each flow with a saved machine learning model
+- present the result as a network monitoring view
+- export flow snapshots for reports and screenshots
+
+The project is useful for the network sector because it demonstrates how raw packets can become operational monitoring data:
+
+```text
+packet capture -> flow tracking -> feature extraction -> ML prediction -> traffic summary
+```
+
 ## Project Structure
 
 ```text
@@ -261,7 +278,9 @@ Get-NetAdapter
 
 ## Run Dataset Demo
 
-This mode does not capture live packets. It only tests the saved models using the CSV files in `datasets/`.
+This mode does not capture live packets. It runs the saved models using the CSV files in `datasets/`.
+
+Important: this is a saved-model dataset check, not a separate ML validation score. The saved models in `models/` may already be trained on these CSV datasets, so this command can look very accurate because it is checking model agreement with known project data.
 
 Recommended command:
 
@@ -283,7 +302,7 @@ The output shows:
 - Dataset name
 - Actual class
 - Predicted class
-- Demo accuracy
+- Saved-model agreement
 
 ## Validate The Dataset
 
@@ -307,41 +326,6 @@ Current expected notes:
 - The datasets currently contain `dns`, `game`, `ping`, `telnet`, and `voice`.
 - Some saved models also know `quake`, but there is no `quake_training_data.csv` in the current `datasets/` folder.
 - The saved `logistic` model does not know the `game` class, so it should not be the main recommended saved model.
-
-## Run A Correct Train/Test Evaluation
-
-Use `evaluate` when you want a better test than the dataset demo.
-
-```powershell
-python traffic_classifier.py evaluate randomforest --test-size 0.3
-```
-
-This trains a fresh model on 70% of the valid dataset rows and tests on the remaining 30%.
-
-It shows:
-
-- train row count
-- test row count
-- accuracy
-- confusion matrix
-- precision / recall / F1-score
-
-Recommended evaluation:
-
-```powershell
-python traffic_classifier.py evaluate randomforest --test-size 0.3 --drop-zero-rows
-```
-
-`--drop-zero-rows` ignores rows where all model features are zero. This is useful because those startup rows can appear in multiple classes and confuse the model.
-
-Other supervised models:
-
-```powershell
-python traffic_classifier.py evaluate knearest --test-size 0.3
-python traffic_classifier.py evaluate gaussiannb --test-size 0.3
-python traffic_classifier.py evaluate svm --test-size 0.3
-python traffic_classifier.py evaluate logistic --test-size 0.3
-```
 
 ## Run Live Windows Capture
 
@@ -462,39 +446,56 @@ The capture table should update when packets are seen.
 Example output:
 
 ```text
-+----+---------+------+--------------+-------------+-----------+--------+-----------+-----------+----------+----------+-----------+-----------+--------+
-| #  | Flow ID | Flow |    Source    | Destination | Predicted | Status | Fwd Delta | Rev Delta | Fwd Pkts | Rev Pkts | Fwd Bytes | Rev Bytes | Age(s) |
-+----+---------+------+--------------+-------------+-----------+--------+-----------+-----------+----------+----------+-----------+-----------+--------+
-| 1  |    7    | tcp  | host-1:51544 |  host-2:443 |   quake   | active |     6     |     7     |    10    |    12    |    1200   |    1350   |  4.21  |
-+----+---------+------+--------------+-------------+-----------+--------+-----------+-----------+----------+----------+-----------+-----------+--------+
++----+---------+-------+---------+--------------+-------------+-----------+-------+--------+-----------+-----------+----------+-----------+--------+
+| #  | Flow ID | Proto | Service |    Source    | Destination | Predicted | Conf  | Status | Fwd Delta | Rev Delta | Pkts F/R | Bytes F/R | Age(s) |
++----+---------+-------+---------+--------------+-------------+-----------+-------+--------+-----------+-----------+----------+-----------+--------+
+| 1  |    7    |  tcp  |  HTTPS  | host-1:51544 |  host-2:443 |   quake   | 82.0% | active |     6     |     7     |  10/12   | 1200/1350 |  4.21  |
++----+---------+-------+---------+--------------+-------------+-----------+-------+--------+-----------+-----------+----------+-----------+--------+
 ```
 
 The `host-1` and `host-2` values appear when `--anonymize` is used. They are placeholders, not real captured IP addresses.
 
 Meaning:
 
-- `Flow`: packet protocol, such as `tcp`, `udp`, or `icmp`.
+- `Proto`: packet protocol, such as `tcp`, `udp`, or `icmp`.
+- `Service`: likely network service based on common ports, such as `HTTPS`, `DNS`, `NETBIOS-NS`, or `WINDOWS-DO`.
 - `Flow ID`: stable number assigned when the flow is first seen.
 - `Source`: source host and port when a port exists.
 - `Destination`: destination host and port when a port exists.
 - `Predicted`: the class predicted by the ML model.
+- `Conf`: model confidence when the saved model supports probability output.
 - `Status`: `active` means the flow had new packets in this print interval; `idle` means no new packets were seen.
 - `Fwd Delta`: new forward packets seen during the latest print interval.
 - `Rev Delta`: new reverse packets seen during the latest print interval.
-- `Fwd Pkts`: total forward packets seen since this flow started.
-- `Rev Pkts`: total reverse packets seen since this flow started.
-- `Fwd Bytes`: total forward bytes seen since this flow started.
-- `Rev Bytes`: total reverse bytes seen since this flow started.
+- `Pkts F/R`: total forward/reverse packets seen since this flow started.
+- `Bytes F/R`: total forward/reverse bytes seen since this flow started.
 - `Age(s)`: how long the flow has been tracked.
+
+When `--summary` is used, the program also prints a network-sector view:
+
+```text
++-------------------------+-------+
+|   Network Sector View   | Value |
++-------------------------+-------+
+| raw packets observed    | 120   |
+| IP packets grouped      | 118   |
+| total tracked flows     | 24    |
+| active shown flows      | 8     |
+| new packets in interval | 31    |
+| shown byte volume       | 44200 |
++-------------------------+-------+
+```
+
+This is useful for a network monitoring demo because it shows traffic volume, active flows, and how many packets were grouped into flows.
 
 When `--show-packets 10` is used, the program also prints recent packet events:
 
 ```text
-+--------+---------+-----------+-------+--------------+-------------+-------+
-| Packet | Flow ID | Direction | Proto |    Source    | Destination | Bytes |
-+--------+---------+-----------+-------+--------------+-------------+-------+
-|   31   |    7    |  forward  |  tcp  | host-1:51544 |  host-2:443 |  128  |
-+--------+---------+-----------+-------+--------------+-------------+-------+
++--------+---------+-----------+-------+---------+--------------+-------------+-------+
+| Packet | Flow ID | Direction | Proto | Service |    Source    | Destination | Bytes |
++--------+---------+-----------+-------+---------+--------------+-------------+-------+
+|   31   |    7    |  forward  |  tcp  |  HTTPS  | host-1:51544 |  host-2:443 |  128  |
++--------+---------+-----------+-------+---------+--------------+-------------+-------+
 ```
 
 This shows the path from individual packets to a tracked flow.
@@ -682,7 +683,6 @@ pip install -r requirements.txt
 pip check
 python traffic_classifier.py demo randomforest --limit 10
 python traffic_classifier.py validate-data
-python traffic_classifier.py evaluate randomforest --test-size 0.3 --drop-zero-rows
 python traffic_classifier.py interfaces
 python traffic_classifier.py capture randomforest --iface "Wi-Fi" --timeout 30 --anonymize --summary --show-packets 10 --output reports\live_capture.csv
 ```

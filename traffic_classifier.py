@@ -26,16 +26,6 @@ MODEL_FILES = {
     "gaussiannb": "models/GaussianNB",
 }
 
-EVALUATION_MODEL_NAMES = [
-    "Randomforest",
-    "gaussiannb",
-    "knearest",
-    "kneighbors",
-    "logistic",
-    "randomforest",
-    "svm",
-]
-
 FEATURE_COLUMNS = [
     "Delta Forward Packets",
     "Delta Forward Bytes",
@@ -58,6 +48,35 @@ CLUSTER_LABELS = {
     3: "quake",
     4: "telnet",
     5: "voice",
+}
+
+SERVICE_PORTS = {
+    20: "FTP-DATA",
+    21: "FTP",
+    22: "SSH",
+    23: "TELNET",
+    25: "SMTP",
+    53: "DNS",
+    67: "DHCP",
+    68: "DHCP",
+    80: "HTTP",
+    110: "POP3",
+    123: "NTP",
+    137: "NETBIOS-NS",
+    138: "NETBIOS-DGM",
+    139: "NETBIOS-SSN",
+    143: "IMAP",
+    443: "HTTPS",
+    445: "SMB",
+    853: "DNS-TLS",
+    993: "IMAPS",
+    995: "POP3S",
+    1900: "SSDP",
+    3478: "STUN",
+    5228: "GOOGLE-FCM",
+    5353: "MDNS",
+    7680: "WINDOWS-DO",
+    8080: "HTTP-ALT",
 }
 
 flows = {}
@@ -118,6 +137,7 @@ class Flow:
         self.reverse_report_bytes = 0
         self.last_seen_time = time_start
         self.last_prediction = ""
+        self.last_confidence = None
 
     def updateforward(self, packets, bytes_count, curr_time):
         self.forward_delta_packets = packets - self.forward_packets
@@ -238,6 +258,22 @@ def normalize_label(label):
 def predict_label(model, features):
     frame = pd.DataFrame(np.asarray(features).reshape(1, -1), columns=FEATURE_COLUMNS)
     return normalize_label(model.predict(frame))
+
+
+def prediction_details(model, features):
+    frame = pd.DataFrame(np.asarray(features).reshape(1, -1), columns=FEATURE_COLUMNS)
+    label = normalize_label(model.predict(frame))
+    confidence = None
+
+    if hasattr(model, "predict_proba"):
+        probabilities = model.predict_proba(frame)[0]
+        best_index = int(np.argmax(probabilities))
+        confidence = float(probabilities[best_index]) * 100.0
+    return label, confidence
+
+
+def format_confidence(confidence):
+    return "-" if confidence is None else "%.1f%%" % confidence
 
 
 def printclassifier(model):
@@ -427,84 +463,6 @@ def run_validate_data():
         print(issue_table)
 
 
-def build_evaluation_model(model_name, random_state):
-    from sklearn.ensemble import RandomForestClassifier
-    from sklearn.linear_model import LogisticRegression
-    from sklearn.naive_bayes import GaussianNB
-    from sklearn.neighbors import KNeighborsClassifier
-    from sklearn.pipeline import make_pipeline
-    from sklearn.preprocessing import StandardScaler
-    from sklearn.svm import SVC
-
-    normalized_name = "randomforest" if model_name == "Randomforest" else model_name
-    if normalized_name == "randomforest":
-        return RandomForestClassifier(n_estimators=100, random_state=random_state)
-    if normalized_name in ("knearest", "kneighbors"):
-        return make_pipeline(StandardScaler(), KNeighborsClassifier())
-    if normalized_name == "gaussiannb":
-        return GaussianNB()
-    if normalized_name == "svm":
-        return make_pipeline(StandardScaler(), SVC())
-    if normalized_name == "logistic":
-        return LogisticRegression(max_iter=10000)
-    raise SystemExit("Evaluation is supported for supervised models only. Use randomforest, knearest, gaussiannb, svm, or logistic.")
-
-
-def run_evaluate(model_name, test_size, random_state, drop_zero_rows):
-    from sklearn.metrics import accuracy_score, classification_report, confusion_matrix
-    from sklearn.model_selection import train_test_split
-
-    frame, issues, _ = load_dataset_frame(drop_zero_rows=drop_zero_rows)
-    if frame.empty:
-        print("No valid dataset rows found.")
-        return
-
-    labels = sorted(frame["Traffic Type"].unique())
-    if len(labels) < 2:
-        print("At least two traffic classes are required for evaluation.")
-        return
-
-    x = frame[FEATURE_COLUMNS]
-    y = frame["Traffic Type"]
-    x_train, x_test, y_train, y_test = train_test_split(
-        x,
-        y,
-        test_size=test_size,
-        random_state=random_state,
-        stratify=y,
-    )
-
-    model = build_evaluation_model(model_name, random_state)
-    model.fit(x_train, y_train)
-    predictions = model.predict(x_test)
-    accuracy = accuracy_score(y_test, predictions)
-
-    result_table = PrettyTable()
-    result_table.field_names = ["Metric", "Value"]
-    result_table.add_row(["model", model_name])
-    result_table.add_row(["valid rows", len(frame)])
-    result_table.add_row(["train rows", len(x_train)])
-    result_table.add_row(["test rows", len(x_test)])
-    result_table.add_row(["test size", test_size])
-    result_table.add_row(["random state", random_state])
-    result_table.add_row(["dropped all-zero rows", "yes" if drop_zero_rows else "no"])
-    result_table.add_row(["data issues ignored", len(issues)])
-    result_table.add_row(["accuracy", "%.2f%%" % (accuracy * 100)])
-    print("Holdout Evaluation")
-    print(result_table)
-
-    confusion = confusion_matrix(y_test, predictions, labels=labels)
-    matrix_table = PrettyTable()
-    matrix_table.field_names = ["Actual \\ Predicted"] + labels
-    for label, row in zip(labels, confusion):
-        matrix_table.add_row([label] + list(row))
-    print("Confusion Matrix")
-    print(matrix_table)
-
-    print("Classification Report")
-    print(classification_report(y_test, predictions, labels=labels, zero_division=0))
-
-
 def run_demo(model_name, limit):
     model = load_model(model_name)
     rows = list(iter_dataset_rows())
@@ -529,7 +487,11 @@ def run_demo(model_name, limit):
 
     print(table)
     if supervised:
-        print("Demo accuracy on all valid dataset rows: %.2f%%" % ((correct / float(total)) * 100))
+        print("Saved-model agreement on all valid dataset rows: %.2f%%" % ((correct / float(total)) * 100))
+        print(
+            "Note: this is a saved-model dataset check, not a separate validation score. "
+            "The saved model may already be trained on these CSV rows."
+        )
     else:
         print("KMeans is unsupervised; shown predictions use the saved cluster mapping.")
 
@@ -635,6 +597,7 @@ def update_flow_from_packet(packet, layers):
         "flow_id": flow.flow_id,
         "direction": direction,
         "protocol": protocol,
+        "service": service_name(protocol, source_port, destination_port),
         "source": source,
         "source_port": source_port,
         "destination": destination,
@@ -658,6 +621,20 @@ class IpAnonymizer:
 def format_endpoint(host, port, anonymizer=None):
     label = anonymizer.label(host) if anonymizer else host
     return "%s:%s" % (label, port) if port else label
+
+
+def service_name(protocol, source_port=0, destination_port=0):
+    if protocol == "icmp":
+        return "ICMP"
+
+    source_service = SERVICE_PORTS.get(int(source_port or 0))
+    destination_service = SERVICE_PORTS.get(int(destination_port or 0))
+
+    if destination_service:
+        return destination_service
+    if source_service:
+        return source_service
+    return "%s-EPHEMERAL" % protocol.upper()
 
 
 def export_capture_rows(output_path, rows):
@@ -749,7 +726,7 @@ def print_recent_packets(max_packets, anonymizer=None):
         return
 
     table = PrettyTable()
-    table.field_names = ["Packet", "Flow ID", "Direction", "Proto", "Source", "Destination", "Bytes"]
+    table.field_names = ["Packet", "Flow ID", "Direction", "Proto", "Service", "Source", "Destination", "Bytes"]
     for event in list(packet_events)[-max_packets:]:
         table.add_row(
             [
@@ -757,6 +734,7 @@ def print_recent_packets(max_packets, anonymizer=None):
                 event["flow_id"],
                 event["direction"],
                 event["protocol"],
+                event["service"],
                 format_endpoint(event["source"], event["source_port"], anonymizer),
                 format_endpoint(event["destination"], event["destination_port"], anonymizer),
                 event["bytes"],
@@ -792,17 +770,17 @@ def print_capture_table(
     table.field_names = [
         "#",
         "Flow ID",
-        "Flow",
+        "Proto",
+        "Service",
         "Source",
         "Destination",
         "Predicted",
+        "Conf",
         "Status",
         "Fwd Delta",
         "Rev Delta",
-        "Fwd Pkts",
-        "Rev Pkts",
-        "Fwd Bytes",
-        "Rev Bytes",
+        "Pkts F/R",
+        "Bytes F/R",
         "Age(s)",
     ]
 
@@ -813,30 +791,33 @@ def print_capture_table(
     for index, (key, flow) in enumerate(recent_flows, start=1):
         active = bool(flow.forward_delta_packets or flow.reverse_delta_packets)
         if active:
-            label = predict_label(model, flow.features())
+            label, confidence = prediction_details(model, flow.features())
             flow.last_prediction = label
+            flow.last_confidence = confidence
         else:
             label = flow.last_prediction or "idle"
+            confidence = flow.last_confidence
         predictions.append(label)
         source = format_endpoint(flow.ethsrc, flow.source_port, anonymizer)
         destination = format_endpoint(flow.ethdst, flow.destination_port, anonymizer)
         status = "active" if active else "idle"
         duration = round(flow.duration(curr_time), 2)
+        service = service_name(key[0], flow.source_port, flow.destination_port)
         table.add_row(
             [
                 index,
                 flow.flow_id,
                 key[0],
+                service,
                 source,
                 destination,
                 label,
+                format_confidence(confidence),
                 status,
                 flow.forward_delta_packets,
                 flow.reverse_delta_packets,
-                flow.forward_packets,
-                flow.reverse_packets,
-                flow.forward_bytes,
-                flow.reverse_bytes,
+                "%s/%s" % (flow.forward_packets, flow.reverse_packets),
+                "%s/%s" % (flow.forward_bytes, flow.reverse_bytes),
                 duration,
             ]
         )
@@ -845,9 +826,11 @@ def print_capture_table(
                 "timestamp": timestamp,
                 "flow_id": flow.flow_id,
                 "protocol": key[0],
+                "service": service,
                 "source": source,
                 "destination": destination,
                 "predicted": label,
+                "confidence_percent": "" if confidence is None else round(confidence, 2),
                 "status": status,
                 "forward_delta_packets": flow.forward_delta_packets,
                 "reverse_delta_packets": flow.reverse_delta_packets,
@@ -860,13 +843,52 @@ def print_capture_table(
         )
     print(table)
     if summary:
-        summary_table = PrettyTable()
-        summary_table.field_names = ["Predicted", "Shown Flows"]
-        for label, count in sorted(Counter(predictions).items()):
-            summary_table.add_row([label, count])
-        print(summary_table)
+        print_network_insights(recent_flows, predictions, packet_count, ip_packet_count)
     print_recent_packets(show_packets, anonymizer)
     export_capture_rows(output, export_rows)
+
+
+def print_network_insights(recent_flows, predictions, packet_count=None, ip_packet_count=None):
+    active_flows = [flow for _, flow in recent_flows if flow.forward_delta_packets or flow.reverse_delta_packets]
+    packet_volume = sum(flow.forward_packets + flow.reverse_packets for _, flow in recent_flows)
+    byte_volume = sum(flow.forward_bytes + flow.reverse_bytes for _, flow in recent_flows)
+    active_volume = sum(flow.forward_delta_packets + flow.reverse_delta_packets for flow in active_flows)
+
+    insight_table = PrettyTable()
+    insight_table.field_names = ["Network Sector View", "Value"]
+    insight_table.add_row(["raw packets observed", packet_count if packet_count is not None else "-"])
+    insight_table.add_row(["IP packets grouped", ip_packet_count if ip_packet_count is not None else "-"])
+    insight_table.add_row(["total tracked flows", len(flows)])
+    insight_table.add_row(["shown flows", len(recent_flows)])
+    insight_table.add_row(["active shown flows", len(active_flows)])
+    insight_table.add_row(["idle shown flows", len(recent_flows) - len(active_flows)])
+    insight_table.add_row(["new packets in interval", active_volume])
+    insight_table.add_row(["shown packet volume", packet_volume])
+    insight_table.add_row(["shown byte volume", byte_volume])
+    print(insight_table)
+
+    prediction_table = PrettyTable()
+    prediction_table.field_names = ["ML Prediction", "Shown Flows"]
+    for label, count in sorted(Counter(predictions).items()):
+        prediction_table.add_row([label, count])
+    print(prediction_table)
+
+    service_table = PrettyTable()
+    service_table.field_names = ["Observed Service", "Shown Flows"]
+    services = Counter(
+        service_name(key[0], flow.source_port, flow.destination_port)
+        for key, flow in recent_flows
+    )
+    for service, count in sorted(services.items(), key=lambda item: (-item[1], item[0]))[:10]:
+        service_table.add_row([service, count])
+    print(service_table)
+
+    protocol_table = PrettyTable()
+    protocol_table.field_names = ["Protocol", "Shown Flows"]
+    protocols = Counter(key[0] for key, _ in recent_flows)
+    for protocol, count in sorted(protocols.items()):
+        protocol_table.add_row([protocol, count])
+    print(protocol_table)
 
 
 def build_parser():
@@ -878,12 +900,6 @@ def build_parser():
     demo_parser.add_argument("--limit", type=int, default=20, help="number of dataset rows to show")
 
     subparsers.add_parser("validate-data", help="check datasets and saved model/data consistency")
-
-    evaluate_parser = subparsers.add_parser("evaluate", help="run a proper train/test evaluation on the datasets")
-    evaluate_parser.add_argument("model", choices=sorted(EVALUATION_MODEL_NAMES), nargs="?", default="randomforest")
-    evaluate_parser.add_argument("--test-size", type=float, default=0.3, help="fraction of data to reserve for testing")
-    evaluate_parser.add_argument("--random-state", type=int, default=101, help="random seed for reproducible splitting")
-    evaluate_parser.add_argument("--drop-zero-rows", action="store_true", help="ignore rows where all model features are zero")
 
     capture_parser = subparsers.add_parser("capture", help="capture live Windows packets and classify flows")
     capture_parser.add_argument("model", choices=sorted(MODEL_FILES), nargs="?", default="randomforest")
@@ -924,9 +940,6 @@ def main():
         return 0
     if args.command == "validate-data":
         run_validate_data()
-        return 0
-    if args.command == "evaluate":
-        run_evaluate(args.model, args.test_size, args.random_state, args.drop_zero_rows)
         return 0
     if args.command == "interfaces":
         list_interfaces()
