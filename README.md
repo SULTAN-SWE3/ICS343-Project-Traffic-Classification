@@ -115,6 +115,38 @@ Install Git for Windows:
 https://git-scm.com/download/win
 ```
 
+## Get The Project Files
+
+Use one of these options.
+
+If you already have the project folder, skip this section.
+
+If the project is on GitHub, clone it with PowerShell:
+
+```powershell
+cd C:\Path\To\ProjectFiles
+git clone <repository-url>
+cd ICS343-Project-Traffic-Classification
+```
+
+Replace `<repository-url>` with the real repository URL.
+
+If you received the project as a ZIP file, extract it first, then open PowerShell inside the extracted folder.
+
+## Privacy And Sharing Checklist
+
+Before sharing the project, check these points:
+
+- Use `--anonymize` when capturing packets for screenshots or reports.
+- Do not share generated files from `reports/` unless you reviewed them first.
+- Do not share packet captures such as `.pcap`, `.pcapng`, `.cap`, or browser `.har` files.
+- Do not share `.venv39/`, `.venv/`, `npcap/`, `ditg/`, or `__pycache__/`.
+- Do not put real local IP addresses, usernames, or machine paths in README screenshots.
+
+The README examples use placeholders such as `host-1`, `host-2`, and `C:\Path\To\...`. These are not real personal values.
+
+The old `D-IGT_scripts/` files use `RECEIVER_IP` as a placeholder. Replace it only if you use those old traffic-generation scripts in a lab.
+
 ## Important: Do Not Share The Virtual Environment Folder
 
 The project uses a virtual environment folder named:
@@ -168,6 +200,18 @@ After activation, your prompt should start with:
 (.venv39)
 ```
 
+Make sure PowerShell is using the virtual-environment Python:
+
+```powershell
+Get-Command python
+```
+
+The path should point inside:
+
+```text
+.\.venv39\Scripts\python.exe
+```
+
 Upgrade basic install tools:
 
 ```powershell
@@ -203,6 +247,14 @@ Expected result:
 ```text
 Python 3.9.x
 ```
+
+Check that the main program can load:
+
+```powershell
+python traffic_classifier.py --help
+```
+
+If this gives `ModuleNotFoundError`, activate `.venv39` again and reinstall the requirements.
 
 ## If PowerShell Blocks Activation
 
@@ -686,5 +738,30 @@ python traffic_classifier.py validate-data
 python traffic_classifier.py interfaces
 python traffic_classifier.py capture randomforest --iface "Wi-Fi" --timeout 30 --anonymize --summary --show-packets 10 --output reports\live_capture.csv
 ```
+
+## Full Demo Commands
+
+Use this sequence for the final project demo:
+
+```powershell
+cd C:\Path\To\ICS343-Project-Traffic-Classification
+.\.venv39\Scripts\Activate.ps1
+python --version
+pip check
+python traffic_classifier.py --help
+python traffic_classifier.py validate-data
+python traffic_classifier.py demo randomforest --limit 10
+python traffic_classifier.py interfaces
+python traffic_classifier.py capture randomforest --iface "Wi-Fi" --timeout 60 --interval 5 --max-flows 15 --anonymize --summary --show-packets 10 --output reports\wifi_demo.csv
+```
+
+During the live capture, generate traffic from another PowerShell window or browser:
+
+```powershell
+ping example.com
+nslookup google.com
+```
+
+The `reports\wifi_demo.csv` file is generated automatically. The whole `reports/` folder is ignored by Git so captured traffic is not uploaded by mistake.
 
 For another computer, do the same setup again. Do not copy `.venv39` from one machine to another.

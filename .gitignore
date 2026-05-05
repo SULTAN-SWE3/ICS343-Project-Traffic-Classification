@@ -12,3 +12,8 @@ env/
 *_training_data_new.csv
 setup_report.txt
 reports/*.csv
+reports/
+*.pcap
+*.pcapng
+*.cap
+*.har
